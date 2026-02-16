@@ -1,0 +1,920 @@
+/* Alplakes Master CSS */
+
+/* Fonts */
+
+@font-face {
+  font-family: "DM_Sans";
+  src: url("fonts/DM_Sans/DMSans-VariableFont_opsz\,wght.ttf")
+    format("truetype-variations");
+  font-weight: 1 999;
+}
+
+@font-face {
+  font-family: "DM_Sans_Italic";
+  src: url("fonts/DM_Sans/DMSans-Italic-VariableFont_opsz\,wght.ttf")
+    format("truetype-variations");
+  font-weight: 1 999;
+}
+
+@font-face {
+  font-family: "Mona_Sans";
+  src: url("fonts/Mona_Sans/MonaSans-VariableFont_wdth\,wght.ttf")
+    format("truetype-variations");
+  font-weight: 1 999;
+}
+
+@font-face {
+  font-family: "Mona_Sans_Italic";
+  src: url("fonts/Mona_Sans/MonaSans-Italic-VariableFont_wdth\,wght.ttf")
+    format("truetype-variations");
+  font-weight: 1 999;
+}
+
+/* Variables */
+
+:root {
+  --background-color: #f3f4f6;
+  --background-font-color: rgb(50, 50, 50);
+  --background-subtle-font-color: rgb(88 88 88);
+  --box-color: rgb(255, 255, 255);
+  --box-color-translucent: rgb(255, 255, 255, 0.9);
+  --select-color: rgb(255, 255, 255);
+  --box-font-color: rgb(0, 0, 0);
+  --box-inner-color: rgb(227, 227, 227);
+  --border-color: #ddd;
+  --box-shadow: rgba(0, 0, 0, 0.14) 0px 1px 5px;
+  --box-shadow-hover: rgba(0, 0, 0, 0.24) 0px 1px 6px;
+  --bottom-shadow: 0px 3px 5px 0px rgba(214, 214, 214, 0.6);
+  --search-shadow:
+    rgba(50, 50, 93, 0.25) 0px 1px 12px -2px,
+    rgba(0, 0, 0, 0.3) 0px 3px 7px -3px;
+  --star-color: #e9c00a;
+  --live-color: #44bca7;
+  --content-width: 1280px;
+  --text-width: 700px;
+  --max-width: 1920px;
+  --top-margin: 50px;
+  --footer-height: 75px;
+  --footer-height-small: 35px;
+  --footer-full-height: 114px;
+  --padding: 40px;
+  --list-width: 500px;
+  --sidebar-width: 450px;
+  --settings-width: 400px;
+  --selector-height: 50px;
+  --input-shadow:
+    inset 0 1px 2px rgba(0, 0, 0, 0.39), 0 0 1px #fff, 0 1px 0 #fff;
+  --info-height: 36px;
+  --map-border-color: rgb(204, 204, 204);
+  --button-fill-color: black;
+  --button-text-color: white;
+  --highlight-color: rgba(68, 188, 167, 1);
+  --link-color: #5594cc;
+  --link-button-color: #f3f4f6;
+  --highlight-color-fill: rgba(68, 188, 167, 0.2);
+  --highlight-color-subtle: #eef9f7;
+  --header-text-color: rgb(59, 59, 59);
+  --pulse-color: rgb(160, 160, 160);
+  --map-color: rgb(236, 236, 236);
+  --map-button: rgba(0, 0, 0, 0.8);
+  --cell-size: 29px;
+  --legend-color: rgb(236 236 236 / 47%);
+  --app-area-height: 127px;
+  --day-selector-height: 64px;
+  --mobile-fade-out: linear-gradient(
+    0deg,
+    rgba(255, 255, 255, 0.7) 0%,
+    rgba(255, 255, 255, 0) 100%
+  );
+  color-scheme: light;
+}
+
+:root {
+  --search-height: calc(var(--padding) * 2 + 132px);
+  --header-height: calc(var(--padding) + 20px);
+}
+
+.dark {
+  --background-color: hsl(232, 11%, 15%);
+  --background-font-color: #e9e9e9;
+  --background-subtle-font-color: rgb(163 163 163);
+  --box-color: rgb(45, 45, 52);
+  --box-color-translucent: rgb(45, 45, 52, 0.9);
+  --select-color: hsl(233, 8%, 19%);
+  --box-font-color: #e5e5e5;
+  --box-inner-color: #282828;
+  --input-shadow:
+    inset 0 1px 2px rgb(44 44 44), 0 0 1px #bdbdbd, 0 1px 0 #464646;
+  --border-color: #434343;
+  --button-fill-color: white;
+  --button-text-color: black;
+  --header-text-color: rgb(207, 202, 202);
+  --highlight-color-subtle: #336f69;
+  --pulse-color: rgb(136 136 136);
+  --map-color: rgb(41, 41, 41);
+  --box-shadow:
+    0 0 0 1px hsla(230, 13%, 9%, 0.075), 0 0.3px 0.4px hsla(230, 13%, 9%, 0.02),
+    0 0.9px 1.5px hsla(230, 13%, 9%, 0.045),
+    0 3.5px 6px hsla(230, 13%, 9%, 0.09);
+  --search-shadow: rgb(14 14 17 / 81%) 0px 3px 8px;
+  --bottom-shadow: 0px 3px 5px 0px rgb(16 16 16 / 26%);
+  --box-shadow-hover: rgb(255 255 255 / 16%) 0px 1px 8px;
+  --legend-color: rgb(41 41 41 / 65%);
+  --link-button-color: #2d2d34;
+  --mobile-fade-out: linear-gradient(
+    0deg,
+    rgba(34, 35, 42, 1) 0%,
+    rgba(34, 35, 42, 0) 100%
+  );
+}
+
+@media screen and (max-width: 1000px) {
+  :root {
+    --list-width: 100%;
+    --padding: 20px;
+    --header-height: calc(var(--padding) * 2 + 22px);
+    --footer-height: 58px;
+    --top-margin: 87px;
+    --search-height: calc(var(--padding) * 2.5 + 125px);
+  }
+}
+
+@media screen and (max-width: 500px) {
+  :root {
+    --background-color: white;
+    --search-height: 138px;
+    --select-color: #f3f4f6;
+  }
+
+  .dark {
+    --box-color: rgb(34, 35, 42);
+    --box-color-translucent: rgb(34, 35, 42, 0.9);
+  }
+}
+
+/* Whole site settings */
+
+.main {
+  font-family: "Mona_Sans", "Frutiger Neue LT Pro", "Arial", sans-serif;
+  color: var(--background-font-color);
+  font-size: 16px;
+}
+
+.main .text-width {
+  margin: auto;
+  box-sizing: border-box;
+  margin-top: var(--top-margin);
+  max-width: calc(var(--text-width) + 4 * var(--padding));
+  padding: 0 var(--padding);
+  width: 100%;
+}
+
+.main .content-width {
+  box-sizing: border-box;
+  margin: auto;
+  margin-top: var(--top-margin);
+  max-width: var(--content-width);
+  min-height: calc(
+    100vh - var(--header-height) - var(--footer-height) - var(--top-margin)
+  );
+  padding: 0 calc(var(--padding) * 1.5);
+  width: 100%;
+}
+
+.main .content-width .header {
+  margin-bottom: var(--padding);
+}
+
+.main .content-width .header .link {
+  background-color: var(--highlight-color);
+  color: white;
+  padding: 6px 12px;
+  border-radius: 12px;
+  box-sizing: border-box;
+  display: inline-block;
+  margin-bottom: 20px;
+  cursor: pointer;
+  transition: all 0.33s 0s ease;
+}
+
+.main .content-width .header .link:hover {
+  transform: scale(1.05);
+}
+
+.main .content-width .header .link img {
+  width: 16px;
+  display: inline-block;
+  filter: brightness(0) invert(1);
+  margin-left: 12px;
+  padding-bottom: 1px;
+}
+
+.main .nonclickbox {
+  background-color: var(--box-color);
+  padding: var(--padding);
+  border-radius: 16px;
+  border: 1px solid var(--border-color);
+}
+
+@media screen and (max-width: 500px) {
+  .main .text-width {
+    padding: 0 var(--padding);
+    margin-top: var(--header-height);
+  }
+
+  .main .content-width {
+    padding: 0 var(--padding);
+    margin-top: var(--header-height);
+  }
+
+  .main .nonclickbox {
+    padding: 0;
+    border: none;
+  }
+}
+
+h1 {
+  font-size: 48px;
+  font-weight: 500;
+  margin-bottom: 2px;
+}
+
+h2 {
+  font-size: 32px;
+  font-weight: 400;
+  margin-bottom: 16px;
+}
+
+h3 {
+  font-size: 20px;
+  margin-bottom: 18px;
+  font-weight: 400;
+  color: var(--background-subtle-font-color);
+}
+
+h4 {
+  font-size: 14px;
+  font-weight: 600;
+  margin-bottom: 8px;
+  color: var(--background-subtle-font-color);
+}
+
+p {
+  font-size: 17px;
+  line-height: 28px;
+  margin-bottom: 22px;
+  max-width: 700px;
+}
+
+@media screen and (max-width: 500px) {
+  h1 {
+    font-size: 30px;
+    color: var(--background-font-color);
+    display: inline-block;
+    vertical-align: super;
+    margin: 10px 0;
+    width: 100%;
+  }
+
+  h2 {
+    margin-bottom: 4px;
+    font-size: 22px;
+    font-weight: 500;
+  }
+
+  p {
+    font-size: 16px;
+    margin-bottom: 12px;
+    margin-top: 12px;
+  }
+}
+
+.main .background {
+  position: fixed;
+  width: 100%;
+  height: 100%;
+  z-index: -1;
+  pointer-events: none;
+  top: 0;
+  left: 0;
+  background-color: var(--background-color);
+}
+
+.main .content {
+  position: relative;
+}
+
+.tooltip-hover {
+  background-color: var(--box-color);
+  border-radius: 8px;
+  padding: 5px 8px;
+  box-shadow: var(--box-shadow);
+  text-align: center;
+  font-size: 12px;
+}
+
+.tooltip-hover::after {
+  content: "";
+  position: absolute;
+  bottom: -15px;
+  left: 50%;
+  transform: translateX(-50%);
+  border-width: 10px;
+  border-style: solid;
+  border-color: var(--box-color) transparent transparent transparent;
+}
+
+.main .tile-class.leaflet-tile {
+  filter: grayscale(100%) !important;
+}
+
+.main.dark .tile-class.leaflet-tile {
+  filter: brightness(2) contrast(0.8) !important;
+}
+
+/* Map icons */
+
+.custom-square-marker div {
+  width: 10px;
+  height: 10px;
+  border: 1px solid var(--border-color);
+  box-sizing: border-box;
+  border-radius: 1px;
+}
+
+.custom-circle-marker div {
+  width: 14px;
+  height: 14px;
+  border: 1px solid var(--border-color);
+  border-radius: 50%;
+  box-sizing: border-box;
+}
+
+.custom-circle-marker.tooltip-small div {
+  width: 8px;
+  height: 8px;
+  margin: 3px;
+}
+
+.current_temperature_tooltip_subtle.tooltip-hidden {
+  visibility: hidden;
+}
+
+/* Skeletons */
+
+.list-item-skeleton {
+  border: 1px solid transparent;
+  border-radius: 16px;
+  box-sizing: border-box;
+  margin-bottom: calc(var(--padding) / 2);
+  position: relative;
+  width: 100%;
+  height: 110px;
+  background-color: var(--box-color);
+  overflow: hidden;
+}
+
+.text-skeleton {
+  display: inline-block;
+  margin-left: 15px;
+  vertical-align: top;
+  margin-bottom: 11px;
+  margin-top: 5px;
+}
+
+.logos-skeleton {
+  position: absolute;
+  right: 12px;
+  top: 12px;
+}
+
+.logos-skeleton .logo-skeleton {
+  height: 25px;
+  width: 25px;
+  background-color: var(--border-color);
+  border-radius: 8px;
+  margin-left: 8px;
+  display: inline-block;
+  opacity: 0.4;
+}
+
+.text-skeleton .name-skeleton {
+  height: 22.5px;
+  width: 150px;
+  background-color: var(--border-color);
+  opacity: 0.4;
+  margin-top: 10px;
+  border-radius: 8px;
+}
+
+.skeleton-block {
+  display: inline-block;
+  width: 20%;
+  height: 54px;
+  border-right: 1px solid;
+  box-sizing: border-box;
+  opacity: 0.8;
+  border-color: var(--border-color);
+  opacity: 0.5;
+}
+
+.skeleton-data {
+  position: absolute;
+  bottom: 0;
+  width: 100%;
+  height: 30px;
+  border-top: 2px solid var(--border-color);
+  left: 0;
+  background: linear-gradient(179deg, #6b636133, #ffffff1f);
+}
+
+.skeleton-block.right {
+  border-right: none;
+}
+
+@keyframes pulseColor {
+  0% {
+    background-color: var(--border-color);
+  }
+
+  100% {
+    background-color: var(--pulse-color);
+  }
+}
+
+.pulse {
+  background-color: var(--border-color);
+  animation: pulseColor 1s infinite alternate;
+}
+
+@keyframes pulseBorderColor {
+  0% {
+    border-color: var(--border-color);
+  }
+
+  100% {
+    border-color: var(--pulse-color);
+  }
+}
+
+.pulse-border {
+  border-color: var(--border-color);
+  animation: pulseBorderColor 1s infinite alternate;
+}
+
+/** Map Tooltips **/
+
+.main .temperature-label {
+  font-size: 14px;
+  transition: transform 0.33s 0s ease;
+}
+
+.main .temperature-label:hover {
+  transform: scale(1.1);
+}
+
+.main .temperature-label .name {
+  display: inline-block;
+  background-color: var(--box-color);
+  color: var(--box-font-color);
+  padding: 4px 8px;
+  box-shadow: var(--box-shadow);
+  border-radius: 8px 0 0 8px;
+}
+
+.main .temperature-label.empty .name {
+  border-radius: 8px;
+}
+
+.main .temperature-label .value {
+  display: inline-block;
+  background-color: var(--highlight-color);
+  color: white;
+  padding: 4px;
+  border-radius: 0 8px 8px 0;
+  font-weight: 600;
+  font-family:
+    DM_Sans,
+    Frutiger Neue LT Pro,
+    Arial,
+    sans-serif;
+}
+
+/* Slider */
+
+.main .switch {
+  display: inline-block;
+  float: right;
+  height: 20px;
+  position: relative;
+  width: 38px;
+}
+
+.main .switch input {
+  height: 0;
+  opacity: 0;
+  width: 0;
+}
+
+.main input[type="checkbox"] {
+  margin-left: 12px;
+}
+
+.main .slider {
+  position: absolute;
+  cursor: pointer;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: #ccc;
+  -webkit-transition: 0.4s;
+  transition: 0.4s;
+}
+
+.main .slider:before {
+  position: absolute;
+  content: "";
+  height: 14px;
+  width: 14px;
+  left: 4px;
+  bottom: 3px;
+  background-color: white;
+  -webkit-transition: 0.4s;
+  transition: 0.4s;
+}
+
+.main input:checked + .slider {
+  background-color: var(--highlight-color);
+}
+
+.main input:focus + .slider {
+  box-shadow: 0 0 1px var(--highlight-color);
+}
+
+.main input:checked + .slider:before {
+  -webkit-transform: translateX(16px);
+  -ms-transform: translateX(16px);
+  transform: translateX(16px);
+}
+
+.main .slider.round {
+  border-radius: 34px;
+}
+
+.main .slider.round:before {
+  border-radius: 50%;
+}
+
+/* Setting */
+
+.main .setting {
+  position: relative;
+  padding: 0px 0px 18px 0px;
+  display: inline-block;
+  width: 100%;
+  font-size: 14px;
+}
+
+.main .setting.half {
+  margin-right: 4%;
+  vertical-align: top;
+  width: 46%;
+}
+
+.main .setting .label {
+  padding: 0px 0px 4px 0px;
+  display: inline-block;
+  color: var(--background-subtle-font-color);
+}
+
+.main .setting-warning {
+  font-size: 14px;
+  margin-bottom: 14px;
+}
+
+.main .setting-warning button {
+  margin-top: 6px;
+  margin-right: 10px;
+  padding: 3px 8px;
+  border-radius: 6px;
+  border: none;
+  cursor: pointer;
+  transition: scale 0.33s ease;
+}
+
+.main .setting-warning button:hover {
+  transform: scale(1.05);
+}
+
+.main .setting input[type="range"] {
+  box-sizing: border-box;
+  padding: 2px 0;
+  width: 100%;
+}
+
+.main .setting input[type="text"] {
+  background-color: var(--box-color);
+  border: none;
+  border-radius: 6px;
+  box-sizing: border-box;
+  color: var(--background-font-color);
+  font-size: 16px;
+  padding: 4px 10px;
+  width: 100%;
+}
+
+.main .setting input[type="number"] {
+  background-color: var(--box-color);
+  border: none;
+  border-radius: 6px;
+  box-sizing: border-box;
+  color: var(--background-font-color);
+  font-size: 16px;
+  padding: 4px 10px;
+  width: 100%;
+}
+
+.main .setting input[type="number"].with-button {
+  padding-right: 25px;
+}
+
+.main .setting input[type="color"] {
+  background-color: #e3e3e3;
+  border: none;
+  box-sizing: border-box;
+  height: 26px;
+  padding: 0;
+  width: 100%;
+  position: absolute;
+  top: 0;
+}
+
+.main .setting .color {
+  position: relative;
+}
+
+.main .setting .color-box {
+  border: none;
+  box-sizing: border-box;
+  height: 26px;
+  padding: 0;
+  width: 100%;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.main .setting .switch {
+  margin-top: 10px;
+}
+
+.main .setting .title {
+  font-size: 15px;
+  font-weight: 700;
+  margin: 10px 0 0px;
+}
+
+.main .setting .performance {
+  padding: 5px 20px 0px 0px;
+  display: inline-block;
+  text-align: center;
+}
+
+.main .setting .performance .performance-value {
+  font-size: 22px;
+}
+
+.main .setting .performance .performance-value .performance-unit {
+  display: inline-block;
+  font-size: 16px;
+}
+
+.main .setting .performance .performance-name {
+  color: var(--background-subtle-font-color);
+  font-size: 12px;
+}
+
+.main .setting .value {
+  float: right;
+}
+
+.main .setting .value.highlight {
+  color: var(--highlight-color);
+}
+
+.main .setting .value.red {
+  color: #a13145;
+}
+
+.main .setting button.remove {
+  background-color: var(--highlight-color);
+  border: none;
+  border-radius: 8px;
+  color: white;
+  cursor: pointer;
+  display: inline-block;
+  font-size: 14px;
+  padding: 5px 12px;
+  transition: all 0.33s ease;
+  margin-top: 20px;
+}
+
+.main .setting button.remove:hover {
+  transform: scale(1.05);
+}
+
+.main .setting button.update {
+  background-color: var(--border-color);
+  border: none;
+  border-radius: 8px;
+  color: var(--background-font-color);
+  cursor: pointer;
+  display: inline-block;
+  font-size: 14px;
+  padding: 5px 12px;
+  transition: all 0.33s ease;
+  margin-top: 20px;
+}
+
+.main .setting button.update:hover {
+  transform: scale(1.05);
+}
+
+.main .setting .minmax {
+  position: relative;
+}
+
+.main .setting .minmax img.reset {
+  border-radius: 8px;
+  cursor: pointer;
+  display: inline-block;
+  height: 16px;
+  margin-left: 8px;
+  opacity: 0.5;
+  position: absolute;
+  right: 5px;
+  top: 5px;
+  transition: all 0.33s ease-in-out;
+  vertical-align: middle;
+}
+
+.main.dark .setting .minmax img.reset {
+  -webkit-filter: invert(100%);
+  filter: invert(100%);
+}
+
+.main .setting .value button {
+  display: inline-block;
+  background-color: var(--box-color);
+  box-shadow: var(--bottom-shadow);
+  border: 1px solid transparent;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 14px;
+  margin-left: 12px;
+  padding: 4px 8px;
+}
+
+.main .setting .value button:hover {
+  border: 1px solid var(--border-color);
+  box-shadow: none;
+}
+
+.main .setting .depth button.set {
+  display: inline-block;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 14px;
+  margin-left: 12px;
+  padding: 4px 12px;
+}
+
+.main .setting .depth button.set.active {
+  box-shadow: var(--bottom-shadow);
+  background-color: var(--highlight-color);
+  border: 1px solid transparent;
+  color: white;
+}
+
+.main .setting .depth button.set.active:hover {
+  box-shadow: none;
+}
+
+.main .setting table.depth-minmax {
+  width: 100%;
+  margin-top: -5px;
+}
+
+.main .setting select {
+  display: block;
+  font-size: 14px;
+  background-color: var(--box-color);
+  cursor: pointer;
+  padding: 4px 8px;
+  text-align: left;
+  color: var(--background-font-color);
+  border: none;
+  border-radius: 6px;
+  max-width: 100%;
+}
+
+.main .setting select.wide {
+  width: 100%;
+}
+
+.main .setting .period-selector input {
+  background-color: var(--box-color);
+  border: none;
+  border-radius: 8px;
+  box-sizing: border-box;
+  color: var(--background-font-color);
+  cursor: pointer;
+  display: inline-block;
+  font-size: 16px;
+  padding: 8px 12px;
+  text-align: left;
+  min-width: 200px;
+}
+
+.main .setting .setting-warning {
+  margin-top: 12px;
+}
+
+.main .setting .react-datepicker {
+  background-color: var(--select-color);
+  border: none;
+  padding-top: 5px;
+  font-size: 16px;
+}
+
+.main .setting .react-datepicker .react-datepicker__triangle {
+  display: none;
+}
+
+.main .setting .react-datepicker .react-datepicker__header {
+  background-color: transparent;
+  border: none;
+}
+
+.main .setting .react-datepicker__day {
+  padding: 1px;
+}
+
+.main .setting .react-datepicker__day:hover {
+  background-color: var(--background-color);
+}
+
+.main .setting .react-datepicker__day-name,
+.main .setting .react-datepicker__day,
+.main .setting .react-datepicker__time-name {
+  color: var(--background-font-color);
+  width: var(--cell-size);
+  height: var(--cell-size);
+  line-height: var(--cell-size);
+  border-radius: var(--cell-size);
+  position: relative;
+  vertical-align: middle;
+  margin: 6px;
+  font-size: 14px;
+  border: 1px solid transparent;
+}
+
+.main .setting .react-datepicker__day--selected {
+  padding: 0;
+  font-weight: bold;
+}
+
+.main .setting .react-datepicker__current-month {
+  color: var(--background-font-color);
+}
+
+.main .setting .react-datepicker__day--disabled {
+  opacity: 0.2;
+  box-shadow: none;
+}
+
+.main .setting .react-datepicker__day--keyboard-selected {
+  background-color: var(--select-color);
+}
+
+.main .setting .react-datepicker__day--in-range {
+  background-color: var(--highlight-color);
+  color: white;
+}
+
+.main .setting .react-datepicker__day--in-selecting-range {
+  background-color: var(--background-color);
+}
+
+.main .setting select.subtle {
+  background-color: var(--box-color);
+  margin-bottom: 10px;
+  display: inline-block;
+}
+
+@media screen and (max-width: 500px) {
+  .setting .period-selector .react-datepicker-popper {
+    display: none;
+  }
+}
