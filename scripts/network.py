@@ -2,10 +2,16 @@
 
 Reads:
   - geodata/headwaters.geojson  — points defining major tributary headwaters
+  - geodata/lakes.geojson       — lake polygons
   - swissTLM3D FlowingWater shapefile — full directed river network
 
 Outputs:
-  - public/geodata/rivers.geojson — filtered network (WGS84 GeoJSON)
+  - public/geodata/rivers.geojson — filtered network, lake-interior segments removed (WGS84)
+  - public/geodata/sinks.geojson  — network termination points with type property:
+        "outlet"      — true river outlet (end of network, not in a lake)
+        "lake_entry"  — where a river flows into a lake
+        "lake_exit"   — where a river flows out of a lake (lake source)
+        "lake_source" — headwater whose snap node lies inside / near a lake
 
 Run from the project root:
   python scripts/network.py
@@ -18,7 +24,7 @@ from pathlib import Path
 import geopandas as gpd
 import networkx as nx
 import numpy as np
-from shapely.geometry import MultiLineString
+from shapely.geometry import LineString, MultiLineString, Point
 from shapely.ops import linemerge
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
@@ -26,24 +32,44 @@ logger = logging.getLogger(__name__)
 
 # Paths relative to project root
 ROOT = Path(__file__).parent.parent
-HEADWATERS_PATH = ROOT / "geodata/headwaters.geojson"
+HEADWATERS_PATH = ROOT / "public/geodata/inputs/headwaters.geojson"
+LAKES_PATH = ROOT / "public/geodata/inputs/lakes.geojson"
 RIVERS_PATH = (
     ROOT
-    / "geodata/swisstlm3d_2025-03_2056_5728.shp/TLM_GEWAESSER"
+    / "external/swisstlm3d_2025-03_2056_5728.shp/TLM_GEWAESSER"
     / "swissTLM3D_TLM_FLIESSGEWAESSER.shp"
 )
-OUTPUT_PATH = ROOT / "public/geodata/rivers.geojson"
-SINKS_PATH = ROOT / "public/geodata/sinks.geojson"
+OUTPUT_PATH = ROOT / "public/geodata/outputs/rivers.geojson"
+HEADWATERS_OUT_PATH = ROOT / "public/geodata/outputs/headwaters.geojson"
+LAKE_SOURCES_PATH = ROOT / "public/geodata/outputs/lake_sources.geojson"
+SINKS_PATH = ROOT / "public/geodata/outputs/sinks.geojson"
 
 TARGET_CRS = "EPSG:2056"
 NODE_PRECISION = 0.1   # metres — coordinates rounded to this grid for node matching
 MAX_SNAP_DISTANCE = 300  # metres — headwaters snapped to nearest segment within this distance
+LAKE_BUFFER_M = 50  # metres — a point within this distance of a lake is "in" the lake
 
 
 def round_coord(coord, precision=NODE_PRECISION):
     """Round coordinate to a fixed grid so nearby points map to the same node."""
     factor = 1.0 / precision
     return tuple(round(c * factor) / factor for c in coord[:2])
+
+
+def extract_lines(geom):
+    """Return a flat list of non-empty LineStrings from any Shapely geometry."""
+    if geom is None or geom.is_empty:
+        return []
+    if isinstance(geom, LineString):
+        return [geom]
+    if isinstance(geom, MultiLineString):
+        return [g for g in geom.geoms if not g.is_empty]
+    if hasattr(geom, "geoms"):  # GeometryCollection
+        result = []
+        for g in geom.geoms:
+            result.extend(extract_lines(g))
+        return result
+    return []
 
 
 def build_graph(rivers):
@@ -95,11 +121,13 @@ def build_graph(rivers):
 def snap_headwaters(headwaters, rivers):
     """Snap each headwater point to the upstream end of the nearest river segment.
 
-    Returns a list of graph nodes (rounded coordinate tuples) — one per
-    successfully snapped headwater.
+    Returns:
+        snap_nodes   : list of graph-node coordinate tuples (one per matched headwater)
+        snap_points  : list of the original headwater Points in TARGET_CRS (same order)
     """
     sindex = rivers.sindex
     snap_nodes = []
+    snap_points = []
     n_failed = 0
 
     for idx, hw in headwaters.iterrows():
@@ -142,12 +170,13 @@ def snap_headwaters(headwaters, rivers):
         line = rivers.geometry.iloc[best_ridx]
         seg = list(line.geoms)[0] if isinstance(line, MultiLineString) else line
         snap_nodes.append(round_coord(list(seg.coords)[0]))
+        snap_points.append(pt)
 
     logger.info(
         "Snapped %d/%d headwaters (failed: %d)",
         len(snap_nodes), len(headwaters), n_failed,
     )
-    return snap_nodes
+    return snap_nodes, snap_points
 
 
 def trace_all_downstream(G, snap_nodes):
@@ -261,6 +290,82 @@ def merge_network(visited_edges, G, edge_geom):
     return output_geoms
 
 
+def _extract_points(geom):
+    """Recursively extract all Point geometries from a Shapely geometry."""
+    if geom is None or geom.is_empty:
+        return []
+    if geom.geom_type == "Point":
+        return [geom]
+    if hasattr(geom, "geoms"):
+        result = []
+        for g in geom.geoms:
+            result.extend(_extract_points(g))
+        return result
+    return []
+
+
+def process_lakes(merged_geoms, lake_union):
+    """Clip merged river geometries against lake polygons.
+
+    River segments that pass through a lake are split at the lake boundary:
+    the lake-interior portions are removed and their endpoints are recorded
+    as lake entry / exit points.
+
+    Returns:
+        clipped_geoms  : river segments outside lakes
+        lake_entries   : Points (EPSG:2056) where rivers enter lakes
+        lake_exits     : Points (EPSG:2056) where rivers exit lakes
+    """
+    clipped_geoms = []
+    lake_entries = []
+    lake_exits = []
+
+    for geom in merged_geoms:
+        if not geom.intersects(lake_union):
+            clipped_geoms.append(geom)
+            continue
+
+        # Keep the parts outside the lake
+        outside = geom.difference(lake_union)
+        outside_lines = extract_lines(outside)
+        clipped_geoms.extend(outside_lines)
+
+        if not outside_lines:
+            # Line is entirely inside the lake — no boundary crossing, so no
+            # entry/exit points to record (the segment is simply dropped).
+            continue
+
+        # Line crosses the lake boundary: find the exact boundary crossing points
+        # by intersecting with the lake boundary rather than using segment endpoints.
+        # This guarantees the points sit on the boundary, not inside the lake.
+        crossings = geom.intersection(lake_union.boundary)
+        cross_pts = _extract_points(crossings)
+        if not cross_pts:
+            continue
+
+        # Sort crossings by distance along the line, then classify as entry/exit
+        # by tracking whether we are currently inside or outside the lake.
+        cross_pts.sort(key=lambda p: geom.project(p))
+
+        # Determine state at the very start of the line (interpolate 1 cm in to
+        # avoid boundary ambiguity when the line begins exactly on the shore).
+        probe = geom.interpolate(min(0.01, geom.length * 0.01))
+        inside_lake = lake_union.contains(probe)
+
+        for pt in cross_pts:
+            if inside_lake:
+                lake_exits.append(pt)
+            else:
+                lake_entries.append(pt)
+            inside_lake = not inside_lake
+
+    logger.info(
+        "Lake clipping: %d lines → %d clipped, %d entries, %d exits",
+        len(merged_geoms), len(clipped_geoms), len(lake_entries), len(lake_exits),
+    )
+    return clipped_geoms, lake_entries, lake_exits
+
+
 def main():
     # --- Load data ---
     logger.info("Loading headwaters from %s", HEADWATERS_PATH)
@@ -270,11 +375,18 @@ def main():
         headwaters = headwaters.to_crs(TARGET_CRS)
     logger.info("Loaded %d headwater points", len(headwaters))
 
+    logger.info("Loading lakes from %s", LAKES_PATH)
+    lakes = gpd.read_file(LAKES_PATH, on_invalid='fix')
+    if lakes.crs is None or lakes.crs.to_epsg() != 2056:
+        lakes = lakes.to_crs(TARGET_CRS)
+    lake_union = lakes.geometry.union_all()
+    logger.info("Loaded %d lake polygons", len(lakes))
+
     logger.info("Loading river network from %s", RIVERS_PATH)
     rivers = gpd.read_file(RIVERS_PATH)
     logger.info("Loaded %d river segments", len(rivers))
 
-    # --- Build directed graph (all segments, Druckstollen tagged but not removed) ---
+    # --- Build directed graph (all segments; Druckstollen tagged but not removed) ---
     logger.info("Building directed graph...")
     G, edge_geom = build_graph(rivers)
     logger.info(
@@ -282,7 +394,7 @@ def main():
     )
 
     # --- Snap headwaters ---
-    snap_nodes = snap_headwaters(headwaters, rivers)
+    snap_nodes, snap_points = snap_headwaters(headwaters, rivers)
 
     # --- Trace downstream ---
     logger.info("Tracing downstream from %d snapped headwaters...", len(snap_nodes))
@@ -294,48 +406,90 @@ def main():
     merged_geoms = merge_network(visited_edges, G, edge_geom)
     logger.info("Merged into %d lines", len(merged_geoms))
 
-    # --- Reproject and export ---
-    logger.info("Reprojecting and writing output...")
-    merged_gdf = gpd.GeoDataFrame(geometry=merged_geoms, crs=TARGET_CRS)
-    merged_gdf = merged_gdf.to_crs("EPSG:4326")
+    # --- Clip against lakes ---
+    logger.info("Clipping river lines against lake polygons...")
+    clipped_geoms, lake_entries, lake_exits = process_lakes(merged_geoms, lake_union)
 
-    features = []
-    for geom in merged_gdf.geometry:
+    # --- Export rivers ---
+    logger.info("Reprojecting and writing rivers...")
+    river_gdf = gpd.GeoDataFrame(geometry=clipped_geoms, crs=TARGET_CRS).to_crs("EPSG:4326")
+
+    river_features = []
+    for geom in river_gdf.geometry:
         if geom is None or geom.is_empty:
             continue
         mls = geom if isinstance(geom, MultiLineString) else MultiLineString([geom])
-        features.append({"type": "Feature", "properties": {}, "geometry": mls.__geo_interface__})
-
-    geojson = {"type": "FeatureCollection", "features": features}
+        river_features.append(
+            {"type": "Feature", "properties": {}, "geometry": mls.__geo_interface__}
+        )
 
     OUTPUT_PATH.parent.mkdir(parents=True, exist_ok=True)
     with open(OUTPUT_PATH, "w") as f:
-        json.dump(geojson, f)
+        json.dump({"type": "FeatureCollection", "features": river_features}, f)
+    logger.info("Saved %d river features to %s", len(river_features), OUTPUT_PATH)
 
-    logger.info("Saved %d features to %s", len(features), OUTPUT_PATH)
+    # --- Build and classify all point features ---
+    # Graph-level sinks: nodes that are destinations but never sources in visited set
+    graph_sources = {u for u, v, k in visited_edges}
+    graph_sinks = {v for u, v, k in visited_edges} - graph_sources
 
-    # --- Export sink nodes (outlets: nodes reached but never departed from) ---
-    sources_in_visited = {u for u, v, k in visited_edges}
-    sinks = {v for u, v, k in visited_edges} - sources_in_visited
-    logger.info("Found %d sink nodes", len(sinks))
+    sink_pts_2056 = []       # true outlets + lake entries
+    lake_source_pts_2056 = []  # lake exits + headwaters starting in a lake
 
-    from shapely.geometry import Point
-    sink_gdf = gpd.GeoDataFrame(
-        geometry=[Point(x, y) for x, y in sinks],
-        crs=TARGET_CRS,
-    ).to_crs("EPSG:4326")
+    for node in graph_sinks:
+        pt = Point(node)
+        if lake_union.distance(pt) < LAKE_BUFFER_M:
+            # Skip — this node is inside or on the lake boundary; the geometry-level
+            # lake_entries (clipped at the exact lake boundary) represent this better.
+            continue
+        sink_pts_2056.append(pt)
 
-    sink_features = [
-        {"type": "Feature", "properties": {}, "geometry": {"type": "Point", "coordinates": [geom.x, geom.y]}}
-        for geom in sink_gdf.geometry
-        if geom is not None and not geom.is_empty
-    ]
+    # Geometry-level lake entries (at the lake boundary, from process_lakes clipping)
+    sink_pts_2056.extend(lake_entries)
+    # Geometry-level lake exits
+    lake_source_pts_2056.extend(lake_exits)
+
+    # Headwater snap points that lie inside / near a lake → lake sources
+    hw_pts_2056 = []
+    for pt in snap_points:
+        if lake_union.distance(pt) < LAKE_BUFFER_M:
+            lake_source_pts_2056.append(pt)
+        else:
+            hw_pts_2056.append(pt)
+
+    def pts_to_geojson(pts_2056):
+        """Reproject a list of EPSG:2056 Points and return a GeoJSON FeatureCollection."""
+        if not pts_2056:
+            return {"type": "FeatureCollection", "features": []}
+        gdf = gpd.GeoDataFrame(geometry=pts_2056, crs=TARGET_CRS).to_crs("EPSG:4326")
+        features = [
+            {"type": "Feature", "properties": {},
+             "geometry": {"type": "Point", "coordinates": [g.x, g.y]}}
+            for g in gdf.geometry if g is not None and not g.is_empty
+        ]
+        return {"type": "FeatureCollection", "features": features}
+
+    # --- Write the four output files ---
+    with open(HEADWATERS_OUT_PATH, "w") as f:
+        gc = pts_to_geojson(hw_pts_2056)
+        json.dump(gc, f)
+    logger.info("Saved %d headwater points to %s", len(gc["features"]), HEADWATERS_OUT_PATH)
+
+    with open(LAKE_SOURCES_PATH, "w") as f:
+        gc = pts_to_geojson(lake_source_pts_2056)
+        json.dump(gc, f)
+    logger.info("Saved %d lake-source points to %s", len(gc["features"]), LAKE_SOURCES_PATH)
+
     with open(SINKS_PATH, "w") as f:
-        json.dump({"type": "FeatureCollection", "features": sink_features}, f)
+        gc = pts_to_geojson(sink_pts_2056)
+        json.dump(gc, f)
+    logger.info("Saved %d sink points to %s", len(gc["features"]), SINKS_PATH)
 
-    logger.info("Saved %d sink points to %s", len(sink_features), SINKS_PATH)
-    print(f"\nDone. {len(features)} river reaches → {OUTPUT_PATH}")
-    print(f"      {len(sink_features)} sink points  → {SINKS_PATH}")
+    print(f"\nDone.")
+    print(f"  {len(river_features):>6} river reaches  → {OUTPUT_PATH}")
+    print(f"  {len(hw_pts_2056):>6} headwaters     → {HEADWATERS_OUT_PATH}")
+    print(f"  {len(lake_source_pts_2056):>6} lake sources   → {LAKE_SOURCES_PATH}")
+    print(f"  {len(sink_pts_2056):>6} sinks          → {SINKS_PATH}")
 
 
 if __name__ == "__main__":
