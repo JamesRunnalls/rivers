@@ -43,6 +43,7 @@ RIVERS_PATH = (
     / "swissTLM3D_TLM_FLIESSGEWAESSER.shp"
 )
 OUTPUT_PATH = ROOT / "public/geodata/outputs/rivers.geojson"
+LAKES_OUT_PATH = ROOT / "public/geodata/outputs/lakes.geojson"
 HEADWATERS_OUT_PATH = ROOT / "public/geodata/outputs/natural_sources.geojson"
 LAKE_SOURCES_PATH = ROOT / "public/geodata/outputs/lake_sources.geojson"
 SINKS_PATH = ROOT / "public/geodata/outputs/sinks.geojson"
@@ -721,6 +722,18 @@ def main():
     with open(OUTPUT_PATH, "w") as f:
         json.dump({"type": "FeatureCollection", "features": river_features}, f)
     logger.info("Saved %d river features to %s", len(river_features), OUTPUT_PATH)
+
+    # --- Export lakes reprojected to EPSG:4326 ---
+    lakes_4326 = lakes.to_crs("EPSG:4326")
+    lake_features = [
+        {"type": "Feature", "properties": dict(row.drop("geometry")),
+         "geometry": row.geometry.__geo_interface__}
+        for _, row in lakes_4326.iterrows()
+        if row.geometry is not None and not row.geometry.is_empty
+    ]
+    with open(LAKES_OUT_PATH, "w") as f:
+        json.dump({"type": "FeatureCollection", "features": lake_features}, f)
+    logger.info("Saved %d lake polygons to %s", len(lake_features), LAKES_OUT_PATH)
 
     # --- Build and classify all point features ---
     graph_sources = {u for u, v, k in visited_edges}
