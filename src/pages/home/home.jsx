@@ -9,7 +9,8 @@ const lerpColor = (t) => {
   const r = Math.round(60 + t * 195);   // 60 -> 255
   const g = Math.round(140 - t * 100);  // 140 -> 40
   const b = Math.round(220 - t * 180);  // 220 -> 40
-  return [r, g, b, 255];
+  return [60, 120, 200, 180];
+  //return [r, g, b, 255];
 };
 
 // Build binary attribute buffers for PathLayer.
@@ -62,7 +63,7 @@ const processGeoJson = (geojson) => {
       }
     }
 
-    widths[fi] = feature.properties?.gauge_id != null ? 400 : 80;
+    widths[fi] = feature.properties?.gauge_ids?.length > 0 ? 400 : 80;
   }
   startIndices[n] = vo; // sentinel: end of last path
 

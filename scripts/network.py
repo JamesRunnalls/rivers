@@ -231,14 +231,120 @@ def trace_all_downstream(G, snap_nodes):
     return all_visited
 
 
-def merge_network(visited_edges, G, edge_geom):
+def propagate_gauge_ids(G, visited_edges, gauges, rivers):
+    """Propagate CAMELS gauge IDs downstream through the visited network.
+
+    Each edge receives the set of gauge IDs that are upstream of it, using a
+    reset-at-gauge rule: when the propagation reaches a gauge node it resets to
+    just that gauge's ID (because a gauge integrates all upstream flow, so
+    downstream you only need to reference that single gauge).
+
+    Algorithm: single topological forward pass (upstream → downstream).
+      - Gauge node  → emit {gauge_id}  (reset)
+      - Other node  → emit union of sets received from all in-edges
+
+    Parameters
+    ----------
+    G            : full MultiDiGraph (all TLM segments)
+    visited_edges: set of (u, v, key) in the traced network
+    gauges       : GeoDataFrame of CAMELS gauging stations (in TARGET_CRS)
+    rivers       : GeoDataFrame of TLM river segments (for spatial index)
+
+    Returns
+    -------
+    edge_gauge_sets : dict[(u, v, key) → frozenset[int]]
+    """
+    # Build subgraph of visited edges
+    H = nx.MultiDiGraph()
+    for u, v, k in visited_edges:
+        H.add_edge(u, v, key=k, **G.edges[u, v, k])
+
+    # Snap each gauge to the nearest node present in H
+    sindex = rivers.sindex
+    gauge_node_map: dict = {}  # graph_node_tuple → int gauge_id
+
+    for _, gauge in gauges.iterrows():
+        pt = gauge.geometry
+        if pt is None or pt.is_empty:
+            continue
+        gid = gauge[GAUGE_ID_COL]
+        try:
+            gid = int(gid) if gid is not None and not np.isnan(float(gid)) else None
+        except (TypeError, ValueError):
+            gid = None
+        if gid is None:
+            continue
+
+        try:
+            result = sindex.nearest(pt, max_distance=GAUGE_SNAP_DISTANCE, return_all=True)
+            candidates = list(result[1])
+        except Exception:
+            candidates = []
+        if not candidates:
+            continue
+
+        best_dist, best_node = np.inf, None
+        for cidx in candidates:
+            line = rivers.geometry.iloc[cidx]
+            if line is None or line.is_empty:
+                continue
+            seg = list(line.geoms)[0] if isinstance(line, MultiLineString) else line
+            for coord in (list(seg.coords)[0], list(seg.coords)[-1]):
+                node = round_coord(coord)
+                if node not in H:
+                    continue
+                d = pt.distance(Point(coord))
+                if d < best_dist:
+                    best_dist, best_node = d, node
+
+        if best_node is not None and best_dist <= GAUGE_SNAP_DISTANCE:
+            gauge_node_map[best_node] = gid
+
+    logger.info("Snapped %d gauges to graph nodes for propagation", len(gauge_node_map))
+
+    # Topological order: upstream nodes first
+    try:
+        topo_order = list(nx.topological_sort(H))
+    except nx.NetworkXUnfeasible:
+        logger.warning("Graph has cycles — gauge propagation may be incomplete")
+        topo_order = list(H.nodes())
+
+    # Forward pass: compute the gauge set emitted downstream by each node
+    node_out_set: dict = {}
+    edge_gauge_sets: dict = {}
+
+    for node in topo_order:
+        if node in gauge_node_map:
+            # RESET: this gauge integrates all upstream flow
+            node_out_set[node] = frozenset([gauge_node_map[node]])
+        else:
+            in_sets = [
+                node_out_set.get(u, frozenset())
+                for u, v, k in H.in_edges(node, keys=True)
+            ]
+            node_out_set[node] = frozenset().union(*in_sets) if in_sets else frozenset()
+
+        out_set = node_out_set[node]
+        for u, v, k in H.out_edges(node, keys=True):
+            edge_gauge_sets[(u, v, k)] = out_set
+
+    assigned = sum(1 for s in edge_gauge_sets.values() if s)
+    logger.info(
+        "Gauge propagation: %d/%d edges have a gauge association",
+        assigned, len(visited_edges),
+    )
+    return edge_gauge_sets
+
+
+def merge_network(visited_edges, G, edge_geom, edge_gauge_sets=None):
     """Merge chains of edges between junction nodes into single LineStrings.
 
     A junction node is any node that is not a simple pass-through (i.e. it has
     in-degree ≠ 1 or out-degree ≠ 1 in the visited subgraph). Edges between
     two consecutive junction nodes are concatenated into one LineString.
 
-    Returns a list of Shapely LineString / MultiLineString geometries.
+    Returns (output_geoms, output_ridxs, output_gauge_sets).
+    output_gauge_sets[i] is a frozenset of gauge IDs for reach i (empty if none).
     """
     # Build subgraph of visited edges only
     H = nx.MultiDiGraph()
@@ -258,7 +364,8 @@ def merge_network(visited_edges, G, edge_geom):
     )
 
     output_geoms = []
-    output_ridxs = []  # parallel list: river_idx values for each merged reach
+    output_ridxs = []       # parallel: river_idx values per merged reach
+    output_gauge_sets = []  # parallel: frozenset of gauge IDs per merged reach
     seen_edges = set()
 
     for start_node in junction_nodes:
@@ -269,6 +376,7 @@ def merge_network(visited_edges, G, edge_geom):
             # Walk the chain from this edge until the next junction node or dead end
             chain = []
             chain_ridxs = []
+            chain_gauge_sets = []
             cu, cv, ck = u, v, k
 
             while True:
@@ -279,6 +387,10 @@ def merge_network(visited_edges, G, edge_geom):
                 ridx = H.edges[cu, cv, ck].get("river_idx")
                 if ridx is not None:
                     chain_ridxs.append(ridx)
+                if edge_gauge_sets is not None:
+                    chain_gauge_sets.append(
+                        edge_gauge_sets.get((cu, cv, ck), frozenset())
+                    )
 
                 if cv in junction_nodes:
                     break
@@ -295,8 +407,12 @@ def merge_network(visited_edges, G, edge_geom):
             merged = linemerge(chain) if len(chain) > 1 else chain[0]
             output_geoms.append(merged)
             output_ridxs.append(chain_ridxs)
+            chain_gauge_set = (
+                frozenset().union(*chain_gauge_sets) if chain_gauge_sets else frozenset()
+            )
+            output_gauge_sets.append(chain_gauge_set)
 
-    return output_geoms, output_ridxs
+    return output_geoms, output_ridxs, output_gauge_sets
 
 
 def _extract_points(geom):
@@ -385,14 +501,17 @@ def assign_gauges_to_reaches(reaches_2d, gauges):
 
     Parameters
     ----------
-    reaches_2d : list of (LineString, name)  — in TARGET_CRS
+    reaches_2d : list of (LineString, name, gauge_set)  — in TARGET_CRS
+                 gauge_set is a frozenset[int] from propagate_gauge_ids
     gauges     : GeoDataFrame with GAUGE_ID_COL column, in TARGET_CRS
 
     Returns
     -------
-    list of (LineString, name, gauge_id)   — gauge_id is int or None
+    list of (LineString, name, gauge_id, gauge_set)
+        gauge_id  : int or None  — directly proximate gauge (≤GAUGE_SNAP_DISTANCE m)
+        gauge_set : frozenset[int] — propagated upstream gauge IDs (passed through)
     """
-    reach_geoms = [g for g, _ in reaches_2d]
+    reach_geoms = [g for g, *_ in reaches_2d]
     sindex = gpd.GeoDataFrame(geometry=reach_geoms, crs=TARGET_CRS).sindex
 
     # reach_idx → [(gauge_id, dist_along_reach)]
@@ -426,18 +545,18 @@ def assign_gauges_to_reaches(reaches_2d, gauges):
         dist_along = reach_geoms[best_ridx].project(pt)
         reach_gauge_map[best_ridx].append((gid, dist_along))
 
-    result_3d = []
+    result_out = []
     n_split = 0
 
-    for i, (geom, name) in enumerate(reaches_2d):
+    for i, (geom, name, gauge_set) in enumerate(reaches_2d):
         gauges_here = sorted(reach_gauge_map[i], key=lambda x: x[1])
 
         if not gauges_here:
-            result_3d.append((geom, name, None))
+            result_out.append((geom, name, None, gauge_set))
             continue
 
         if len(gauges_here) == 1:
-            result_3d.append((geom, name, gauges_here[0][0]))
+            result_out.append((geom, name, gauges_here[0][0], gauge_set))
             continue
 
         # Multiple gauges: split at midpoints between consecutive gauge positions
@@ -453,14 +572,14 @@ def assign_gauges_to_reaches(reaches_2d, gauges):
                 continue
             sub = substring(geom, cuts[j], cuts[j + 1])
             if sub is not None and not sub.is_empty and sub.length >= NODE_PRECISION:
-                result_3d.append((sub, name, gids[j]))
+                result_out.append((sub, name, gids[j], gauge_set))
         n_split += 1
 
     logger.info(
         "Gauge assignment: %d reaches → %d (split %d multi-gauge reaches)",
-        len(reaches_2d), len(result_3d), n_split,
+        len(reaches_2d), len(result_out), n_split,
     )
-    return result_3d
+    return result_out
 
 
 def main():
@@ -505,9 +624,15 @@ def main():
     visited_edges = trace_all_downstream(G, snap_nodes)
     logger.info("Collected %d unique edges", len(visited_edges))
 
+    # --- Propagate gauge IDs downstream ---
+    logger.info("Propagating gauge IDs through network...")
+    edge_gauge_sets = propagate_gauge_ids(G, visited_edges, gauges, rivers)
+
     # --- Merge chains between junctions ---
     logger.info("Merging edge chains between junction nodes...")
-    merged_geoms, merged_ridxs = merge_network(visited_edges, G, edge_geom)
+    merged_geoms, merged_ridxs, merged_gauge_sets = merge_network(
+        visited_edges, G, edge_geom, edge_gauge_sets
+    )
     logger.info("Merged into %d lines", len(merged_geoms))
 
     # --- Compute modal river name for each merged reach ---
@@ -526,22 +651,21 @@ def main():
 
     reach_names = [modal_name(ridxs) for ridxs in merged_ridxs]
 
-    # --- Clip against lakes, carrying names through in a single pass ---
+    # --- Clip against lakes, carrying names and gauge sets through ---
     logger.info("Clipping river lines against lake polygons...")
-    clipped_with_names = []
+    clipped_data = []  # (LineString, name, gauge_set)
     lake_entries = []
     lake_exits = []
 
-    for geom, name in zip(merged_geoms, reach_names):
+    for geom, name, gauge_set in zip(merged_geoms, reach_names, merged_gauge_sets):
         if not geom.intersects(lake_union):
-            # extract_lines handles MultiLineString → individual LineStrings
             for seg in extract_lines(geom):
-                clipped_with_names.append((seg, name))
+                clipped_data.append((seg, name, gauge_set))
             continue
 
         outside_lines = extract_lines(geom.difference(lake_union))
         for seg in outside_lines:
-            clipped_with_names.append((seg, name))
+            clipped_data.append((seg, name, gauge_set))
 
         if not outside_lines:
             continue  # entirely inside lake — drop silently, no entry/exit points
@@ -565,27 +689,31 @@ def main():
 
     logger.info(
         "Lake clipping: %d reaches → %d segments, %d entries, %d exits",
-        len(merged_geoms), len(clipped_with_names), len(lake_entries), len(lake_exits),
+        len(merged_geoms), len(clipped_data), len(lake_entries), len(lake_exits),
     )
 
     # --- Assign gauge IDs, splitting reaches with multiple gauges ---
     logger.info("Assigning gauging stations to reaches...")
-    reaches_3d = assign_gauges_to_reaches(clipped_with_names, gauges)
+    reaches_out = assign_gauges_to_reaches(clipped_data, gauges)
 
     # --- Export rivers ---
     logger.info("Reprojecting and writing rivers...")
     river_gdf = gpd.GeoDataFrame(
-        geometry=[g for g, _, _ in reaches_3d], crs=TARGET_CRS
+        geometry=[g for g, *_ in reaches_out], crs=TARGET_CRS
     ).to_crs("EPSG:4326")
 
     river_features = []
-    for (_, name, gauge_id), geom in zip(reaches_3d, river_gdf.geometry):
+    for (_, name, gauge_id, gauge_set), geom in zip(reaches_out, river_gdf.geometry):
         if geom is None or geom.is_empty:
             continue
         mls = geom if isinstance(geom, MultiLineString) else MultiLineString([geom])
         river_features.append({
             "type": "Feature",
-            "properties": {"name": name, "gauge_id": gauge_id},
+            "properties": {
+                "name": name,
+                "gauge_id": gauge_id,
+                "gauge_ids": sorted(gauge_set),
+            },
             "geometry": mls.__geo_interface__,
         })
 
@@ -595,7 +723,6 @@ def main():
     logger.info("Saved %d river features to %s", len(river_features), OUTPUT_PATH)
 
     # --- Build and classify all point features ---
-    # Graph-level sinks: nodes that are destinations but never sources in visited set
     graph_sources = {u for u, v, k in visited_edges}
     graph_sinks = {v for u, v, k in visited_edges} - graph_sources
 
