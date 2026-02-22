@@ -133,6 +133,7 @@ const SwissRiversDeckGL = () => {
   const [lakes, setLakes] = useState(null);
   const [hoverInfo, setHoverInfo] = useState(null);
   const [hoveredName, setHoveredName] = useState(null);
+  const [hoveredLake, setHoveredLake] = useState(null);
   const [discharge, setDischarge] = useState(null);
 
   useEffect(() => {
@@ -222,15 +223,30 @@ const SwissRiversDeckGL = () => {
             if (info.object) {
               const name = info.object.properties?.name ?? null;
               setHoverInfo({ x: info.x, y: info.y, name });
+              setHoveredLake(info.object);
             } else {
               setHoverInfo(null);
+              setHoveredLake(null);
             }
           },
         }),
       );
     }
+    if (hoveredLake) {
+      result.push(
+        new PathLayer({
+          id: "lake-highlight",
+          data: hoveredLake.geometry.coordinates.map((ring) => ({ path: ring })),
+          getPath: (d) => d.path,
+          getColor: [255, 255, 255, 200],
+          getWidth: 1,
+          widthUnits: "pixels",
+          pickable: false,
+        }),
+      );
+    }
     return result;
-  }, [riverData, lakes, viewState.zoom, hoveredName, geojson]);
+  }, [riverData, lakes, viewState.zoom, hoveredName, geojson, hoveredLake]);
 
   return (
     <div
