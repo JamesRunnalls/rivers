@@ -25,7 +25,7 @@ import geopandas as gpd
 import networkx as nx
 import numpy as np
 from shapely.geometry import LineString, MultiLineString, Point
-from shapely.ops import linemerge
+from shapely.ops import linemerge, substring
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 logger = logging.getLogger(__name__)
@@ -34,6 +34,9 @@ logger = logging.getLogger(__name__)
 ROOT = Path(__file__).parent.parent
 HEADWATERS_PATH = ROOT / "public/geodata/inputs/headwaters.geojson"
 LAKES_PATH = ROOT / "public/geodata/inputs/lakes.geojson"
+GAUGES_PATH = ROOT / "public/geodata/inputs/camels/CAMELS_CH_gauging_stations.shp"
+GAUGE_ID_COL = "gauge_id"
+GAUGE_SNAP_DISTANCE = 500  # metres — gauge must be within this distance of a reach
 RIVERS_PATH = (
     ROOT
     / "external/swisstlm3d_2025-03_2056_5728.shp/TLM_GEWAESSER"
@@ -372,6 +375,94 @@ def process_lakes(merged_geoms, lake_union):
     return clipped_geoms, lake_entries, lake_exits
 
 
+def assign_gauges_to_reaches(reaches_2d, gauges):
+    """Snap gauging stations to river reaches and embed gauge IDs as properties.
+
+    Each gauge is assigned to the nearest reach within GAUGE_SNAP_DISTANCE.
+    Reaches with a single gauge keep their geometry; reaches with multiple gauges
+    are split at the midpoint between each consecutive pair of gauges so that
+    every sub-reach carries exactly one gauge ID.
+
+    Parameters
+    ----------
+    reaches_2d : list of (LineString, name)  — in TARGET_CRS
+    gauges     : GeoDataFrame with GAUGE_ID_COL column, in TARGET_CRS
+
+    Returns
+    -------
+    list of (LineString, name, gauge_id)   — gauge_id is int or None
+    """
+    reach_geoms = [g for g, _ in reaches_2d]
+    sindex = gpd.GeoDataFrame(geometry=reach_geoms, crs=TARGET_CRS).sindex
+
+    # reach_idx → [(gauge_id, dist_along_reach)]
+    reach_gauge_map = {i: [] for i in range(len(reaches_2d))}
+
+    for _, gauge in gauges.iterrows():
+        pt = gauge.geometry
+        if pt is None or pt.is_empty:
+            continue
+
+        try:
+            result = sindex.nearest(pt, max_distance=GAUGE_SNAP_DISTANCE, return_all=True)
+            candidates = list(result[1])
+        except Exception:
+            candidates = []
+
+        if not candidates:
+            continue
+
+        best_dist, best_ridx = np.inf, None
+        for cidx in candidates:
+            d = reach_geoms[cidx].distance(pt)
+            if d < best_dist:
+                best_dist, best_ridx = d, cidx
+
+        if best_ridx is None:
+            continue
+
+        gid = gauge[GAUGE_ID_COL]
+        gid = int(gid) if gid is not None and not np.isnan(float(gid)) else None
+        dist_along = reach_geoms[best_ridx].project(pt)
+        reach_gauge_map[best_ridx].append((gid, dist_along))
+
+    result_3d = []
+    n_split = 0
+
+    for i, (geom, name) in enumerate(reaches_2d):
+        gauges_here = sorted(reach_gauge_map[i], key=lambda x: x[1])
+
+        if not gauges_here:
+            result_3d.append((geom, name, None))
+            continue
+
+        if len(gauges_here) == 1:
+            result_3d.append((geom, name, gauges_here[0][0]))
+            continue
+
+        # Multiple gauges: split at midpoints between consecutive gauge positions
+        dists = [d for _, d in gauges_here]
+        gids  = [gid for gid, _ in gauges_here]
+        cuts  = [0.0]
+        for j in range(len(dists) - 1):
+            cuts.append((dists[j] + dists[j + 1]) / 2.0)
+        cuts.append(geom.length)
+
+        for j in range(len(cuts) - 1):
+            if cuts[j + 1] - cuts[j] < NODE_PRECISION:
+                continue
+            sub = substring(geom, cuts[j], cuts[j + 1])
+            if sub is not None and not sub.is_empty and sub.length >= NODE_PRECISION:
+                result_3d.append((sub, name, gids[j]))
+        n_split += 1
+
+    logger.info(
+        "Gauge assignment: %d reaches → %d (split %d multi-gauge reaches)",
+        len(reaches_2d), len(result_3d), n_split,
+    )
+    return result_3d
+
+
 def main():
     # --- Load data ---
     logger.info("Loading headwaters from %s", HEADWATERS_PATH)
@@ -380,6 +471,13 @@ def main():
         logger.info("Reprojecting headwaters to EPSG:2056")
         headwaters = headwaters.to_crs(TARGET_CRS)
     logger.info("Loaded %d headwater points", len(headwaters))
+
+    logger.info("Loading gauging stations from %s", GAUGES_PATH)
+    gauges = gpd.read_file(GAUGES_PATH)
+    if gauges.crs is None or gauges.crs.to_epsg() != 2056:
+        gauges = gauges.to_crs(TARGET_CRS)
+    gauges = gauges[gauges["type"] != "lake"]  # exclude lake gauges
+    logger.info("Loaded %d gauging stations", len(gauges))
 
     logger.info("Loading lakes from %s", LAKES_PATH)
     lakes = gpd.read_file(LAKES_PATH, on_invalid='fix')
@@ -436,7 +534,9 @@ def main():
 
     for geom, name in zip(merged_geoms, reach_names):
         if not geom.intersects(lake_union):
-            clipped_with_names.append((geom, name))
+            # extract_lines handles MultiLineString → individual LineStrings
+            for seg in extract_lines(geom):
+                clipped_with_names.append((seg, name))
             continue
 
         outside_lines = extract_lines(geom.difference(lake_union))
@@ -468,20 +568,26 @@ def main():
         len(merged_geoms), len(clipped_with_names), len(lake_entries), len(lake_exits),
     )
 
+    # --- Assign gauge IDs, splitting reaches with multiple gauges ---
+    logger.info("Assigning gauging stations to reaches...")
+    reaches_3d = assign_gauges_to_reaches(clipped_with_names, gauges)
+
     # --- Export rivers ---
     logger.info("Reprojecting and writing rivers...")
     river_gdf = gpd.GeoDataFrame(
-        geometry=[g for g, _ in clipped_with_names], crs=TARGET_CRS
+        geometry=[g for g, _, _ in reaches_3d], crs=TARGET_CRS
     ).to_crs("EPSG:4326")
 
     river_features = []
-    for (_, name), geom in zip(clipped_with_names, river_gdf.geometry):
+    for (_, name, gauge_id), geom in zip(reaches_3d, river_gdf.geometry):
         if geom is None or geom.is_empty:
             continue
         mls = geom if isinstance(geom, MultiLineString) else MultiLineString([geom])
-        river_features.append(
-            {"type": "Feature", "properties": {"name": name}, "geometry": mls.__geo_interface__}
-        )
+        river_features.append({
+            "type": "Feature",
+            "properties": {"name": name, "gauge_id": gauge_id},
+            "geometry": mls.__geo_interface__,
+        })
 
     OUTPUT_PATH.parent.mkdir(parents=True, exist_ok=True)
     with open(OUTPUT_PATH, "w") as f:

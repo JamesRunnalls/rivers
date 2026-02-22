@@ -62,8 +62,7 @@ const processGeoJson = (geojson) => {
       }
     }
 
-    // Width proxy: more vertices ≈ larger/longer river → wider
-    widths[fi] = 50 + Math.min(nv / 300, 1) * 450;
+    widths[fi] = feature.properties?.gauge_id != null ? 400 : 80;
   }
   startIndices[n] = vo; // sentinel: end of last path
 
