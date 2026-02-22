@@ -255,6 +255,7 @@ def merge_network(visited_edges, G, edge_geom):
     )
 
     output_geoms = []
+    output_ridxs = []  # parallel list: river_idx values for each merged reach
     seen_edges = set()
 
     for start_node in junction_nodes:
@@ -264,6 +265,7 @@ def merge_network(visited_edges, G, edge_geom):
 
             # Walk the chain from this edge until the next junction node or dead end
             chain = []
+            chain_ridxs = []
             cu, cv, ck = u, v, k
 
             while True:
@@ -271,6 +273,9 @@ def merge_network(visited_edges, G, edge_geom):
                 geom = edge_geom.get((cu, cv, ck))
                 if geom is not None:
                     chain.append(geom)
+                ridx = H.edges[cu, cv, ck].get("river_idx")
+                if ridx is not None:
+                    chain_ridxs.append(ridx)
 
                 if cv in junction_nodes:
                     break
@@ -286,8 +291,9 @@ def merge_network(visited_edges, G, edge_geom):
 
             merged = linemerge(chain) if len(chain) > 1 else chain[0]
             output_geoms.append(merged)
+            output_ridxs.append(chain_ridxs)
 
-    return output_geoms
+    return output_geoms, output_ridxs
 
 
 def _extract_points(geom):
@@ -403,24 +409,78 @@ def main():
 
     # --- Merge chains between junctions ---
     logger.info("Merging edge chains between junction nodes...")
-    merged_geoms = merge_network(visited_edges, G, edge_geom)
+    merged_geoms, merged_ridxs = merge_network(visited_edges, G, edge_geom)
     logger.info("Merged into %d lines", len(merged_geoms))
 
-    # --- Clip against lakes ---
+    # --- Compute modal river name for each merged reach ---
+    name_vals = rivers["NAME"].values if "NAME" in rivers.columns else None
+
+    def modal_name(ridxs):
+        """Return the most common non-null NAME among the given river_idx values."""
+        if name_vals is None:
+            return None
+        counts = {}
+        for ridx in ridxs:
+            n = name_vals[ridx]
+            if n and str(n).strip() and str(n).lower() != "nan":
+                counts[n] = counts.get(n, 0) + 1
+        return max(counts, key=counts.get) if counts else None
+
+    reach_names = [modal_name(ridxs) for ridxs in merged_ridxs]
+
+    # --- Clip against lakes, carrying names through in a single pass ---
     logger.info("Clipping river lines against lake polygons...")
-    clipped_geoms, lake_entries, lake_exits = process_lakes(merged_geoms, lake_union)
+    clipped_with_names = []
+    lake_entries = []
+    lake_exits = []
+
+    for geom, name in zip(merged_geoms, reach_names):
+        if not geom.intersects(lake_union):
+            clipped_with_names.append((geom, name))
+            continue
+
+        outside_lines = extract_lines(geom.difference(lake_union))
+        for seg in outside_lines:
+            clipped_with_names.append((seg, name))
+
+        if not outside_lines:
+            continue  # entirely inside lake — drop silently, no entry/exit points
+
+        # Find exact boundary crossing points and classify as entry/exit
+        crossings = geom.intersection(lake_union.boundary)
+        cross_pts = _extract_points(crossings)
+        if not cross_pts:
+            continue
+
+        cross_pts.sort(key=lambda p: geom.project(p))
+        probe = geom.interpolate(min(0.01, geom.length * 0.01))
+        inside_lake = lake_union.contains(probe)
+
+        for pt in cross_pts:
+            if inside_lake:
+                lake_exits.append(pt)
+            else:
+                lake_entries.append(pt)
+            inside_lake = not inside_lake
+
+    logger.info(
+        "Lake clipping: %d reaches → %d segments, %d entries, %d exits",
+        len(merged_geoms), len(clipped_with_names), len(lake_entries), len(lake_exits),
+    )
 
     # --- Export rivers ---
     logger.info("Reprojecting and writing rivers...")
-    river_gdf = gpd.GeoDataFrame(geometry=clipped_geoms, crs=TARGET_CRS).to_crs("EPSG:4326")
+    river_gdf = gpd.GeoDataFrame(
+        geometry=[g for g, _ in clipped_with_names], crs=TARGET_CRS
+    ).to_crs("EPSG:4326")
 
     river_features = []
-    for geom in river_gdf.geometry:
+    for (_, name), geom in zip(clipped_with_names, river_gdf.geometry):
         if geom is None or geom.is_empty:
             continue
         mls = geom if isinstance(geom, MultiLineString) else MultiLineString([geom])
         river_features.append(
-            {"type": "Feature", "properties": {}, "geometry": mls.__geo_interface__}
+            {"type": "Feature", "properties": {"name": name}, "geometry": mls.__geo_interface__}
         )
 
     OUTPUT_PATH.parent.mkdir(parents=True, exist_ok=True)

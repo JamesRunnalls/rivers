@@ -28,3 +28,4 @@ metadata/files/*
 !metadata/files/.gitkeep
 
 external
+public/geodata/tiles
