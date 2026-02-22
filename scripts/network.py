@@ -704,19 +704,27 @@ def main():
     ).to_crs("EPSG:4326")
 
     river_features = []
-    for (_, name, gauge_id, gauge_set), geom in zip(reaches_out, river_gdf.geometry):
+    props = [(name, gauge_id, gauge_set) for _, name, gauge_id, gauge_set in reaches_out]
+    for (name, gauge_id, gauge_set), geom in zip(props, river_gdf.geometry):
         if geom is None or geom.is_empty:
             continue
-        mls = geom if isinstance(geom, MultiLineString) else MultiLineString([geom])
-        river_features.append({
-            "type": "Feature",
-            "properties": {
-                "name": name,
-                "gauge_id": gauge_id,
-                "gauge_ids": sorted(gauge_set),
-            },
-            "geometry": mls.__geo_interface__,
-        })
+        # Split MultiLineString into individual LineStrings and strip Z coordinates.
+        # This prevents DeckGL from drawing spurious connectors between disconnected
+        # segments and avoids altitude-induced visual offset when the map is tilted.
+        lines = list(geom.geoms) if isinstance(geom, MultiLineString) else [geom]
+        for line in lines:
+            line_2d = LineString([(c[0], c[1]) for c in line.coords])
+            if line_2d.is_empty or line_2d.length == 0:
+                continue
+            river_features.append({
+                "type": "Feature",
+                "properties": {
+                    "name": name,
+                    "gauge_id": gauge_id,
+                    "gauge_ids": sorted(gauge_set),
+                },
+                "geometry": line_2d.__geo_interface__,
+            })
 
     OUTPUT_PATH.parent.mkdir(parents=True, exist_ok=True)
     with open(OUTPUT_PATH, "w") as f:

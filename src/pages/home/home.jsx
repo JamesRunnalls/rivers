@@ -3,6 +3,7 @@ import { Map } from "react-map-gl/maplibre";
 import "maplibre-gl/dist/maplibre-gl.css";
 import DeckGL from "@deck.gl/react";
 import { PathLayer, SolidPolygonLayer } from "@deck.gl/layers";
+import "./home.css";
 
 // Interpolate blue -> red based on t (0..1)
 const lerpColor = (t) => {
@@ -27,8 +28,7 @@ const processGeoJson = (geojson, discharge) => {
   let maxDischarge = 1; // avoid divide-by-zero
 
   for (let fi = 0; fi < n; fi++) {
-    let count = 0;
-    for (const line of features[fi].geometry.coordinates) count += line.length;
+    const count = features[fi].geometry.coordinates.length;
     vertexCounts[fi] = count;
     totalVertices += count;
 
@@ -43,7 +43,7 @@ const processGeoJson = (geojson, discharge) => {
 
   const logMax = Math.log1p(maxDischarge);
 
-  const positions = new Float64Array(totalVertices * 3);
+  const positions = new Float64Array(totalVertices * 2);
   const colors = new Uint8Array(totalVertices * 4);
   const startIndices = new Uint32Array(n + 1); // +1 for sentinel
   const widths = new Float32Array(n);
@@ -56,27 +56,23 @@ const processGeoJson = (geojson, discharge) => {
     startIndices[fi] = vo;
     names[fi] = feature.properties?.name ?? null;
     if (names[fi] && names[fi].includes(" |")) {
-      console.log(names[fi]);
       names[fi] = names[fi].split(" |")[0];
     }
 
     const nv = vertexCounts[fi]; // total vertices for this feature
     let lv = 0; // local vertex index within the feature
 
-    for (const line of feature.geometry.coordinates) {
-      for (const coord of line) {
-        const t = nv <= 1 ? 0.5 : lv / (nv - 1);
-        const [r, g, b, a] = lerpColor(t);
-        colors[vo * 4] = r;
-        colors[vo * 4 + 1] = g;
-        colors[vo * 4 + 2] = b;
-        colors[vo * 4 + 3] = a;
-        positions[vo * 3] = coord[0];
-        positions[vo * 3 + 1] = coord[1];
-        positions[vo * 3 + 2] = coord[2] ?? 0;
-        vo++;
-        lv++;
-      }
+    for (const coord of feature.geometry.coordinates) {
+      const t = nv <= 1 ? 0.5 : lv / (nv - 1);
+      const [r, g, b, a] = lerpColor(t);
+      colors[vo * 4] = r;
+      colors[vo * 4 + 1] = g;
+      colors[vo * 4 + 2] = b;
+      colors[vo * 4 + 3] = a;
+      positions[vo * 2] = coord[0];
+      positions[vo * 2 + 1] = coord[1];
+      vo++;
+      lv++;
     }
 
     // log scale to compress the large discharge range
@@ -89,7 +85,7 @@ const processGeoJson = (geojson, discharge) => {
     length: n,
     startIndices,
     attributes: {
-      getPath: { value: positions, size: 3 },
+      getPath: { value: positions, size: 2 },
       getColor: { value: colors, size: 4 },
     },
     widths,
@@ -193,10 +189,10 @@ const SwissRiversDeckGL = () => {
           const name = f.properties?.name;
           return (
             name &&
-            (name === hoveredName || name.split(" |")[0] === hoveredName)
+            name.split(" |").some((part) => part.trim() === hoveredName)
           );
         })
-        .flatMap((f) => f.geometry.coordinates.map((path) => ({ path })));
+        .map((f) => ({ path: f.geometry.coordinates }));
       if (matchingPaths.length) {
         result.push(
           new PathLayer({
@@ -221,6 +217,15 @@ const SwissRiversDeckGL = () => {
           getPolygon: (d) => d.geometry.coordinates,
           getFillColor: [60, 120, 200, 255],
           extruded: false,
+          pickable: true,
+          onHover: (info) => {
+            if (info.object) {
+              const name = info.object.properties?.name ?? null;
+              setHoverInfo({ x: info.x, y: info.y, name });
+            } else {
+              setHoverInfo(null);
+            }
+          },
         }),
       );
     }
@@ -233,7 +238,7 @@ const SwissRiversDeckGL = () => {
         position: "relative",
         width: "100vw",
         height: "100vh",
-        background: "#0a0f1a",
+        background: "#333333",
         fontFamily: "'JetBrains Mono', 'Fira Code', monospace",
       }}
     >
