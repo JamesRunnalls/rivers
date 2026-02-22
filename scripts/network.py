@@ -40,7 +40,7 @@ RIVERS_PATH = (
     / "swissTLM3D_TLM_FLIESSGEWAESSER.shp"
 )
 OUTPUT_PATH = ROOT / "public/geodata/outputs/rivers.geojson"
-HEADWATERS_OUT_PATH = ROOT / "public/geodata/outputs/headwaters.geojson"
+HEADWATERS_OUT_PATH = ROOT / "public/geodata/outputs/natural_sources.geojson"
 LAKE_SOURCES_PATH = ROOT / "public/geodata/outputs/lake_sources.geojson"
 SINKS_PATH = ROOT / "public/geodata/outputs/sinks.geojson"
 
